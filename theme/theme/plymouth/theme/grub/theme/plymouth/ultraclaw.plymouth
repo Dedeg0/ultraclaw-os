@@ -1,8 +1,0 @@
-[Plymouth Theme]
-Name=UltraClaw
-Description=Minimal monochrome boot theme for UltraClaw OS
-ModuleName=script
-
-[script]
-ImageDir=/usr/share/plymouth/themes/ultraclaw
-ScriptFile=/usr/share/plymouth/themes/ultraclaw/ultraclaw.script
