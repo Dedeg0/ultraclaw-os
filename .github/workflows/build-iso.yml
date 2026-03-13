@@ -82,7 +82,8 @@ jobs:
         sudo mount --bind /proc    "$CHROOT/proc"
         sudo mount --bind /sys     "$CHROOT/sys"
         sudo mount --bind /run     "$CHROOT/run"
-        sudo cp /etc/resolv.conf "$CHROOT/etc/resolv.conf"
+        sudo cp /etc/resolv.conf "$CHROOT/etc/resolv.conf" 2>/dev/null || true
+        sudo chroot "$CHROOT" /bin/bash -c "echo 'nameserver 8.8.8.8' > /etc/resolv.conf" 2>/dev/null || true
         sudo mkdir -p "$CHROOT/tmp/ultraclaw"
         sudo cp -r scripts/  "$CHROOT/tmp/ultraclaw/" 2>/dev/null || true
         sudo cp -r theme/    "$CHROOT/tmp/ultraclaw/" 2>/dev/null || true
