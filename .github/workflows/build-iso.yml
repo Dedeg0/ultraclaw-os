@@ -87,7 +87,8 @@ jobs:
         sudo mkdir -p "$CHROOT/tmp/ultraclaw"
         sudo cp -r scripts/  "$CHROOT/tmp/ultraclaw/" 2>/dev/null || true
         sudo cp -r theme/    "$CHROOT/tmp/ultraclaw/" 2>/dev/null || true
-        sudo cp    install.sh "$CHROOT/tmp/ultraclaw/"
+        sed 's/\r//' install.sh | sudo tee "$CHROOT/tmp/ultraclaw/install.sh" > /dev/null
+        sed 's/\r//' theme/install-theme.sh | sudo tee "$CHROOT/tmp/ultraclaw/theme/install-theme.sh" > /dev/null 2>&1 || true
         sudo chroot "$CHROOT" /bin/bash -c "
           set -e
           export DEBIAN_FRONTEND=noninteractive
