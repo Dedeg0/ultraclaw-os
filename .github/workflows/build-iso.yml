@@ -54,9 +54,12 @@ jobs:
     - name: Download Ubuntu base ISO
       if: steps.cache-iso.outputs.cache-hit != 'true'
       run: |
-        echo "Baixando Ubuntu ${{ env.UBUNTU_VERSION }} Server ISO..."
-        wget -q --show-progress \
-          "https://releases.ubuntu.com/${{ env.UBUNTU_VERSION }}/ubuntu-${{ env.UBUNTU_VERSION }}-live-server-amd64.iso" \
+        echo "Baixando Ubuntu 24.04 Server ISO..."
+        wget --progress=dot:giga \
+          "https://releases.ubuntu.com/24.04.2/ubuntu-24.04.2-live-server-amd64.iso" \
+          -O /tmp/ubuntu-base.iso || \
+        wget --progress=dot:giga \
+          "https://old-releases.ubuntu.com/releases/24.04/ubuntu-24.04-live-server-amd64.iso" \
           -O /tmp/ubuntu-base.iso
         echo "Download concluído: $(du -sh /tmp/ubuntu-base.iso | cut -f1)"
 
