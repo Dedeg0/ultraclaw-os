@@ -1,0 +1,271 @@
+name: Import and Rename OpenCLAW
+
+on:
+  workflow_dispatch:
+    inputs:
+      openclaw_ref:
+        description: "OpenCLAW branch or tag to import"
+        required: false
+        default: "main"
+
+jobs:
+  import-openclaw:
+    name: Import OpenCLAW → UltraClaw
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: write
+
+    steps:
+
+    - name: Checkout ultraclaw-os
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+        token: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Configure git
+      run: |
+        git config user.name  "github-actions[bot]"
+        git config user.email "github-actions[bot]@users.noreply.github.com"
+
+    - name: Clone OpenCLAW
+      run: |
+        echo "Cloning OpenCLAW @ ${{ github.event.inputs.openclaw_ref }}..."
+        git clone --depth=1 \
+          --branch "${{ github.event.inputs.openclaw_ref }}" \
+          https://github.com/openclaw/openclaw.git \
+          /tmp/openclaw-src
+        echo "Cloned: $(ls /tmp/openclaw-src | head -10)"
+
+    - name: Copy OpenCLAW source into ultraclaw-os/core/
+      run: |
+        mkdir -p core/
+
+        # Copy everything except git history and lock files
+        rsync -a \
+          --exclude='.git' \
+          --exclude='node_modules' \
+          --exclude='.pnpm-store' \
+          --exclude='dist' \
+          --exclude='build' \
+          /tmp/openclaw-src/ \
+          core/
+
+        echo "Copied $(find core/ -type f | wc -l) files into core/"
+
+    - name: Install rename dependencies
+      run: |
+        sudo apt-get install -y moreutils ripgrep
+
+    - name: Run rename script
+      run: |
+        cp scripts/rename.sh /tmp/rename.sh
+        chmod +x /tmp/rename.sh
+        cd core/
+        bash /tmp/rename.sh
+
+    - name: Update root package.json to reference core/
+      run: |
+        if [ ! -f package.json ]; then
+          cat > package.json << 'EOF'
+        {
+          "name": "ultraclaw-os",
+          "version": "0.1.0",
+          "private": true,
+          "description": "UltraClaw OS - Personal AI assistant operating system",
+          "scripts": {
+            "install:core": "cd core && pnpm install",
+            "build": "cd core && pnpm build",
+            "dev": "cd core && pnpm gateway:watch",
+            "ultraclaw": "cd core && pnpm ultraclaw"
+          }
+        }
+        EOF
+        fi
+
+    - name: Create UltraClaw OS overlay files
+      run: |
+        # Create ultraclaw-specific config that overrides openclaw defaults
+        mkdir -p core/src/ultraclaw
+
+        cat > core/src/ultraclaw/defaults.ts << 'EOF'
+        /**
+         * UltraClaw OS -- System Defaults
+         * Overrides OpenCLAW defaults for OS integration
+         */
+        export const ULTRACLAW_DEFAULTS = {
+          // Gateway
+          gatewayPort: 18790,
+          configDir: '~/.ultraclaw',
+          dataDir: '/var/claw',
+
+          // LLM -- Ollama first, then remote APIs
+          modelFallbackChain: ['ollama', 'anthropic', 'openai'],
+          ollamaHost: 'http://127.0.0.1:11434',
+          defaultModel: 'ollama/llama3.2',
+
+          // Branding
+          productName: 'UltraClaw OS',
+          version: '0.1.0',
+        } as const;
+        EOF
+
+        cat > core/src/ultraclaw/ollama-provider.ts << 'EOF'
+        /**
+         * UltraClaw OS -- Ollama LLM Provider
+         * Integrates local Ollama instance as primary model backend
+         */
+        import { ULTRACLAW_DEFAULTS } from './defaults';
+
+        export interface OllamaMessage {
+          role: 'user' | 'assistant' | 'system';
+          content: string;
+        }
+
+        export interface OllamaResponse {
+          model: string;
+          message: OllamaMessage;
+          done: boolean;
+          total_duration?: number;
+        }
+
+        export class OllamaProvider {
+          private host: string;
+
+          constructor(host = ULTRACLAW_DEFAULTS.ollamaHost) {
+            this.host = host;
+          }
+
+          async isAvailable(): Promise<boolean> {
+            try {
+              const res = await fetch(`${this.host}/api/tags`, {
+                signal: AbortSignal.timeout(2000),
+              });
+              return res.ok;
+            } catch {
+              return false;
+            }
+          }
+
+          async listModels(): Promise<string[]> {
+            const res = await fetch(`${this.host}/api/tags`);
+            const data = await res.json() as { models: { name: string }[] };
+            return data.models.map(m => m.name);
+          }
+
+          async chat(
+            model: string,
+            messages: OllamaMessage[],
+            onChunk?: (text: string) => void
+          ): Promise<string> {
+            const res = await fetch(`${this.host}/api/chat`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ model, messages, stream: !!onChunk }),
+            });
+
+            if (!res.ok) throw new Error(`Ollama error: ${res.status}`);
+
+            if (!onChunk) {
+              const data = await res.json() as OllamaResponse;
+              return data.message.content;
+            }
+
+            // Streaming
+            const reader = res.body!.getReader();
+            const decoder = new TextDecoder();
+            let full = '';
+
+            while (true) {
+              const { done, value } = await reader.read();
+              if (done) break;
+              const chunk = decoder.decode(value);
+              for (const line of chunk.split('\n').filter(Boolean)) {
+                try {
+                  const data = JSON.parse(line) as OllamaResponse;
+                  if (data.message?.content) {
+                    full += data.message.content;
+                    onChunk(data.message.content);
+                  }
+                } catch { /* skip malformed chunks */ }
+              }
+            }
+
+            return full;
+          }
+        }
+        EOF
+
+        echo "UltraClaw overlay files created"
+
+    - name: Generate updated README
+      run: |
+        cat > README.md << 'EOF'
+        # UltraClaw OS
+
+        > Personal AI assistant operating system. Run AI locally on your own hardware.
+
+        Based on [OpenCLAW](https://github.com/openclaw/openclaw) (MIT License) — refactored and integrated into a bootable Linux OS.
+
+        ## What is UltraClaw OS?
+
+        UltraClaw OS is Ubuntu 24.04 LTS with the UltraClaw agent system pre-installed. Boot from USB, and you have a fully configured AI assistant running locally with Ollama.
+
+        ## Quick Start (installed system)
+
+        ```bash
+        ultraclaw onboard
+        ultraclaw gateway --port 18790
+        ```
+
+        ## Build ISO
+
+        ISO builds automatically via GitHub Actions on every push to `main`.
+        Download the latest ISO from the [Actions tab](../../actions).
+
+        ## Architecture
+
+        ```
+        Channels (WhatsApp, Telegram, Discord, ...)
+                      │
+                      ▼
+        ┌─────────────────────────────┐
+        │      UltraClaw Gateway      │
+        │   ws://127.0.0.1:18790      │
+        └──────────────┬──────────────┘
+                       │
+               ┌───────┴───────┐
+               │               │
+          Ollama (local)   Remote APIs
+          llama3.2/mistral  Anthropic/OpenAI
+        ```
+
+        ## License
+
+        MIT — based on OpenCLAW by Peter Steinberger and contributors.
+        EOF
+
+        echo "README updated"
+
+    - name: Commit everything
+      run: |
+        git add -A
+        git status --short | head -30
+        CHANGED=$(git status --short | wc -l)
+        echo "Changed files: $CHANGED"
+
+        git commit -m "feat: import OpenCLAW and rename to UltraClaw OS
+
+        - Copied OpenCLAW source into core/
+        - Renamed all openclaw → ultraclaw references
+        - Added Ollama provider (local LLM first)
+        - Added UltraClaw OS defaults and overlay
+        - Updated README
+        - Gateway port: 18789 → 18790
+        - Config dir: ~/.openclaw → ~/.ultraclaw
+
+        Based on openclaw/openclaw @ ${{ github.event.inputs.openclaw_ref }} (MIT)"
+
+        git push origin main
+        echo "Done! Check the repository for the imported code."
