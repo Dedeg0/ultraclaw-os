@@ -84,11 +84,13 @@ jobs:
         sudo mount --bind /run     "$CHROOT/run"
         sudo cp /etc/resolv.conf "$CHROOT/etc/resolv.conf" 2>/dev/null || true
         sudo chroot "$CHROOT" /bin/bash -c "echo 'nameserver 8.8.8.8' > /etc/resolv.conf" 2>/dev/null || true
-        sudo mkdir -p "$CHROOT/tmp/ultraclaw"
-        sudo cp -r scripts/  "$CHROOT/tmp/ultraclaw/" 2>/dev/null || true
-        sudo cp -r theme/    "$CHROOT/tmp/ultraclaw/" 2>/dev/null || true
+        sudo mkdir -p "$CHROOT/tmp/ultraclaw/theme/plymouth"
+        sudo mkdir -p "$CHROOT/tmp/ultraclaw/theme/grub"
         sed 's/\r//' install.sh | sudo tee "$CHROOT/tmp/ultraclaw/install.sh" > /dev/null
-        sed 's/\r//' theme/install-theme.sh | sudo tee "$CHROOT/tmp/ultraclaw/theme/install-theme.sh" > /dev/null 2>&1 || true
+        sed 's/\r//' theme/install-theme.sh | sudo tee "$CHROOT/tmp/ultraclaw/theme/install-theme.sh" > /dev/null 2>/dev/null || true
+        sudo cp theme/plymouth/ultraclaw.script   "$CHROOT/tmp/ultraclaw/theme/plymouth/" 2>/dev/null || true
+        sudo cp theme/plymouth/ultraclaw.plymouth "$CHROOT/tmp/ultraclaw/theme/plymouth/" 2>/dev/null || true
+        sudo cp theme/grub/theme.txt              "$CHROOT/tmp/ultraclaw/theme/grub/"     2>/dev/null || true
         sudo chroot "$CHROOT" /bin/bash -c "
           set -e
           export DEBIAN_FRONTEND=noninteractive
