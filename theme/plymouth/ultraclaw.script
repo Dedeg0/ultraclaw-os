@@ -1,0 +1,100 @@
+# UltraClaw Plymouth Theme
+# Arquivo: /usr/share/plymouth/themes/ultraclaw/ultraclaw.script
+
+# ── Resolução e fundo ──────────────────────────────────────
+Window.SetBackgroundTopColor(0.03, 0.03, 0.03);
+Window.SetBackgroundBottomColor(0.03, 0.03, 0.03);
+
+screen_width  = Window.GetWidth();
+screen_height = Window.GetHeight();
+
+cx = screen_width  / 2;
+cy = screen_height / 2;
+
+# ── Logo (PNG gerada pelo install script) ──────────────────
+logo_image = Image("logo.png");
+logo_sprite = Sprite(logo_image);
+logo_sprite.SetX(cx - logo_image.GetWidth()  / 2);
+logo_sprite.SetY(cy - logo_image.GetHeight() / 2 - 40);
+logo_sprite.SetOpacity(0);
+
+# ── Wordmark ───────────────────────────────────────────────
+wordmark = Image.Text("ULTRACLAW OS",
+    1.0, 1.0, 1.0,          # RGB branco
+    "light",                 # peso
+    "DejaVu Sans 11"         # fonte + tamanho
+);
+wordmark_sprite = Sprite(wordmark);
+wordmark_sprite.SetX(cx - wordmark.GetWidth() / 2);
+wordmark_sprite.SetY(cy + 50);
+wordmark_sprite.SetOpacity(0);
+
+# ── Barra de progresso ─────────────────────────────────────
+BAR_WIDTH  = 160;
+BAR_HEIGHT = 1;
+BAR_Y      = cy + 80;
+
+bar_bg = Image.Fill(BAR_WIDTH, BAR_HEIGHT, 0.15, 0.15, 0.15, 1.0);
+bar_bg_sprite = Sprite(bar_bg);
+bar_bg_sprite.SetX(cx - BAR_WIDTH / 2);
+bar_bg_sprite.SetY(BAR_Y);
+bar_bg_sprite.SetOpacity(0);
+
+bar_fill = Image.Fill(1, BAR_HEIGHT, 0.85, 0.85, 0.85, 1.0);
+bar_sprite = Sprite(bar_fill);
+bar_sprite.SetX(cx - BAR_WIDTH / 2);
+bar_sprite.SetY(BAR_Y);
+bar_sprite.SetOpacity(0);
+
+# ── Estado de progresso ────────────────────────────────────
+progress = 0;
+fade_in_done = 0;
+time_elapsed = 0;
+
+# ── Loop principal ─────────────────────────────────────────
+fun refresh_callback() {
+    time_elapsed++;
+
+    # Fade in suave da logo
+    if (time_elapsed < 30) {
+        opacity = Math.Min(time_elapsed / 25.0, 1.0);
+        logo_sprite.SetOpacity(opacity);
+        wordmark_sprite.SetOpacity(opacity * 0.7);
+        bar_bg_sprite.SetOpacity(opacity * 0.4);
+        bar_sprite.SetOpacity(opacity);
+    }
+
+    # Atualiza largura da barra de progresso
+    bar_w = Math.Max(1, progress * BAR_WIDTH / 100);
+    bar_fill = Image.Fill(bar_w, BAR_HEIGHT, 0.85, 0.85, 0.85, 1.0);
+    bar_sprite.SetImage(bar_fill);
+}
+
+Plymouth.SetRefreshFunction(refresh_callback);
+
+# ── Callback de progresso do boot ─────────────────────────
+fun boot_progress_callback(duration, progress_val) {
+    progress = Math.Min(progress_val * 100, 99);
+}
+
+Plymouth.SetBootProgressFunction(boot_progress_callback);
+
+# ── Sistema pronto ─────────────────────────────────────────
+fun boot_complete_callback() {
+    progress = 100;
+    bar_w = BAR_WIDTH;
+    bar_fill = Image.Fill(bar_w, BAR_HEIGHT, 1.0, 1.0, 1.0, 1.0);
+    bar_sprite.SetImage(bar_fill);
+}
+
+Plymouth.SetBootCompleteFunction(boot_complete_callback);
+
+# ── Tela de login (fade out) ───────────────────────────────
+fun on_hide() {
+    logo_sprite.SetOpacity(0);
+    wordmark_sprite.SetOpacity(0);
+    bar_bg_sprite.SetOpacity(0);
+    bar_sprite.SetOpacity(0);
+}
+
+Plymouth.SetDisplayNormalFunction(on_hide);
