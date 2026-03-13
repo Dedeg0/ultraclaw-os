@@ -6,7 +6,7 @@ on:
     tags:     [ 'v*' ]
   pull_request:
     branches: [ main ]
-  workflow_dispatch:        # permite rodar manualmente pelo GitHub UI
+  workflow_dispatch:
 
 env:
   UBUNTU_VERSION: "24.04"
@@ -15,16 +15,14 @@ env:
 jobs:
   build-iso:
     name: Build ISO
-    runs-on: ubuntu-24.04   # VM Linux gratuita no GitHub
+    runs-on: ubuntu-24.04
     timeout-minutes: 90
 
     steps:
 
-    # ── 1. Checkout do repositório ────────────────────────
     - name: Checkout
       uses: actions/checkout@v4
 
-    # ── 2. Dependências do sistema ────────────────────────
     - name: Install build dependencies
       run: |
         sudo apt-get update -qq
@@ -43,7 +41,6 @@ jobs:
           grub-efi-amd64-bin \
           mtools
 
-    # ── 3. Cache da ISO base (evita baixar 1.5GB toda vez) ─
     - name: Cache Ubuntu base ISO
       id: cache-iso
       uses: actions/cache@v4
@@ -51,186 +48,112 @@ jobs:
         path: /tmp/ubuntu-base.iso
         key: ubuntu-${{ env.UBUNTU_VERSION }}-base-iso
 
-- name: Extract base ISO
+    - name: Download Ubuntu base ISO
+      if: steps.cache-iso.outputs.cache-hit != 'true'
+      run: |
+        echo "Baixando Ubuntu 24.04.2 Server ISO..."
+        wget --progress=dot:giga \
+          "https://releases.ubuntu.com/24.04.2/ubuntu-24.04.2-live-server-amd64.iso" \
+          -O /tmp/ubuntu-base.iso || \
+        wget --progress=dot:giga \
+          "https://old-releases.ubuntu.com/releases/24.04/ubuntu-24.04-live-server-amd64.iso" \
+          -O /tmp/ubuntu-base.iso
+        echo "Download concluído: $(du -sh /tmp/ubuntu-base.iso | cut -f1)"
+
+    - name: Extract base ISO
       run: |
         mkdir -p /tmp/iso-work/{mount,extract,squashfs}
-
         sudo mount -o loop /tmp/ubuntu-base.iso /tmp/iso-work/mount
-
-        # Descobre onde está o squashfs na ISO
         SQUASHFS_PATH=$(sudo find /tmp/iso-work/mount -name "*.squashfs" | head -1)
         echo "Squashfs encontrado em: $SQUASHFS_PATH"
         echo "SQUASHFS_PATH=$SQUASHFS_PATH" >> "$GITHUB_ENV"
-
-        # Copia estrutura da ISO
         sudo rsync -a /tmp/iso-work/mount/ /tmp/iso-work/extract/
         sudo chmod -R u+w /tmp/iso-work/extract/
-
-        # Extrai o squashfs
         echo "Extraindo squashfs..."
         sudo unsquashfs -d /tmp/iso-work/squashfs "$SQUASHFS_PATH"
-
         sudo umount /tmp/iso-work/mount
         echo "Extração concluída: $(du -sh /tmp/iso-work/squashfs | cut -f1)"
 
-    # ── 4. Monta e extrai a ISO base ──────────────────────
-    - name: Extract base ISO
-      run: |
-        mkdir -p /tmp/iso-work/{mount,extract,squashfs,new-squashfs}
-
-        # Monta a ISO
-        sudo mount -o loop /tmp/ubuntu-base.iso /tmp/iso-work/mount
-
-        # Copia estrutura da ISO
-        sudo rsync -a /tmp/iso-work/mount/ /tmp/iso-work/extract/
-        sudo chmod -R u+w /tmp/iso-work/extract/
-
-        # Extrai o squashfs (filesystem raiz)
-        echo "Extraindo squashfs..."
-        sudo unsquashfs \
-          -d /tmp/iso-work/squashfs \
-          /tmp/iso-work/mount/casper/filesystem.squashfs
-
-        sudo umount /tmp/iso-work/mount
-        echo "Extração concluída: $(du -sh /tmp/iso-work/squashfs | cut -f1)"
-
-    # ── 5. Injeta o UltraClaw no chroot ──────────────────
     - name: Inject UltraClaw into chroot
       run: |
         CHROOT="/tmp/iso-work/squashfs"
-
-        # Monta filesystems necessários pro chroot funcionar
         sudo mount --bind /dev     "$CHROOT/dev"
         sudo mount --bind /dev/pts "$CHROOT/dev/pts"
         sudo mount --bind /proc    "$CHROOT/proc"
         sudo mount --bind /sys     "$CHROOT/sys"
         sudo mount --bind /run     "$CHROOT/run"
-
-        # Copia resolv.conf para ter internet dentro do chroot
         sudo cp /etc/resolv.conf "$CHROOT/etc/resolv.conf"
-
-        # Copia os arquivos do UltraClaw para dentro do chroot
         sudo mkdir -p "$CHROOT/tmp/ultraclaw"
-        sudo cp -r scripts/     "$CHROOT/tmp/ultraclaw/"
-        sudo cp -r theme/       "$CHROOT/tmp/ultraclaw/" 2>/dev/null || true
-        sudo cp    install.sh   "$CHROOT/tmp/ultraclaw/"
-
-        # Executa o instalador dentro do chroot
-        echo "Executando install.sh no chroot..."
+        sudo cp -r scripts/  "$CHROOT/tmp/ultraclaw/" 2>/dev/null || true
+        sudo cp -r theme/    "$CHROOT/tmp/ultraclaw/" 2>/dev/null || true
+        sudo cp    install.sh "$CHROOT/tmp/ultraclaw/"
         sudo chroot "$CHROOT" /bin/bash -c "
           set -e
           export DEBIAN_FRONTEND=noninteractive
           export ULTRACLAW_NONINTERACTIVE=1
-
           cd /tmp/ultraclaw
           bash install.sh --non-interactive
-
-          # Instala o tema visual
           if [ -f /tmp/ultraclaw/theme/install-theme.sh ]; then
             bash /tmp/ultraclaw/theme/install-theme.sh
           fi
-
-          # Limpa caches para reduzir tamanho da ISO
           apt-get clean
           rm -rf /tmp/ultraclaw
           rm -rf /var/lib/apt/lists/*
           rm -f /etc/resolv.conf
         "
-
-        # Desmonta filesystems
-        sudo umount "$CHROOT/run"  || true
-        sudo umount "$CHROOT/sys"  || true
-        sudo umount "$CHROOT/proc" || true
+        sudo umount "$CHROOT/run"     || true
+        sudo umount "$CHROOT/sys"     || true
+        sudo umount "$CHROOT/proc"    || true
         sudo umount "$CHROOT/dev/pts" || true
-        sudo umount "$CHROOT/dev"  || true
+        sudo umount "$CHROOT/dev"     || true
 
-        echo "Injeção concluída."
-
-    # ── 6. Atualiza metadados do squashfs ─────────────────
     - name: Update ISO metadata
       run: |
         EXTRACT="/tmp/iso-work/extract"
-
-        # Atualiza contagem de arquivos (necessário para o instalador)
-        sudo bash -c "
-          printf $(sudo du -sx --block-size=1 /tmp/iso-work/squashfs | \
-          cut -f1) > $EXTRACT/casper/filesystem.size
-        "
-
-        # Atualiza manifest de pacotes
+        SQUASHFS_DEST=$(echo "${{ env.SQUASHFS_PATH }}" | sed 's|/tmp/iso-work/mount|/tmp/iso-work/extract|')
+        sudo bash -c "printf $(sudo du -sx --block-size=1 /tmp/iso-work/squashfs | cut -f1) > $EXTRACT/casper/filesystem.size" || true
         sudo chroot /tmp/iso-work/squashfs dpkg-query \
           -W --showformat='${Package} ${Version}\n' \
-          | sudo tee "$EXTRACT/casper/filesystem.manifest" > /dev/null
+          | sudo tee "$EXTRACT/casper/filesystem.manifest" > /dev/null || true
+        echo "SQUASHFS_DEST=$SQUASHFS_DEST" >> "$GITHUB_ENV"
 
-        # Atualiza label da ISO
-        echo "ULTRACLAW OS ${{ env.UBUNTU_VERSION }}" \
-          | sudo tee "$EXTRACT/.disk/info" > /dev/null || true
-
-    # ── 7. Recompacta squashfs ────────────────────────────
     - name: Repack squashfs
       run: |
-        SQUASHFS_DEST=$(echo "${{ env.SQUASHFS_PATH }}" | sed 's|/tmp/iso-work/mount|/tmp/iso-work/extract|')
-        echo "Recompactando para: $SQUASHFS_DEST"
+        echo "Recompactando squashfs..."
         sudo mksquashfs \
           /tmp/iso-work/squashfs \
-          "$SQUASHFS_DEST" \
+          "${{ env.SQUASHFS_DEST }}" \
           -comp xz -b 1M -noappend -no-progress
-        echo "Squashfs recompactado: $(du -sh $SQUASHFS_DEST | cut -f1)"
+        echo "Tamanho final: $(du -sh ${{ env.SQUASHFS_DEST }} | cut -f1)"
 
-    # ── 8. Gera a ISO final ───────────────────────────────
     - name: Build final ISO
       run: |
-        # Determina o nome da ISO com versão
         if [[ "${{ github.ref }}" == refs/tags/* ]]; then
           VERSION="${{ github.ref_name }}"
         else
           VERSION="$(date +%Y%m%d)-$(echo ${{ github.sha }} | cut -c1-7)"
         fi
-
         ISO_FILE="${{ env.ISO_NAME }}-${VERSION}-amd64.iso"
         echo "ISO_FILE=$ISO_FILE" >> "$GITHUB_ENV"
-        echo "VERSION=$VERSION"   >> "$GITHUB_ENV"
-
-        echo "Gerando ISO: $ISO_FILE"
-
         sudo xorriso -as mkisofs \
           -iso-level 3 \
           -full-iso9660-filenames \
           -volid "ULTRACLAW_OS" \
           -output "/tmp/$ISO_FILE" \
           -eltorito-boot boot/grub/i386-pc/eltorito.img \
-          -no-emul-boot \
-          -boot-load-size 4 \
-          -boot-info-table \
+          -no-emul-boot -boot-load-size 4 -boot-info-table \
           --eltorito-catalog boot/grub/boot.cat \
           --grub2-boot-info \
           --grub2-mbr /usr/lib/grub/i386-pc/boot_hybrid.img \
-          -eltorito-alt-boot \
-          -e EFI/efiboot.img \
-          -no-emul-boot \
-          -append_partition 2 0xef /tmp/iso-work/extract/EFI/efiboot.img \
-          -m "EFI/efiboot.img" \
-          -m "boot/grub/i386-pc/eltorito.img" \
-          -graft-points \
-            "/EFI/efiboot.img=/tmp/iso-work/extract/EFI/efiboot.img" \
-            "/boot/grub/i386-pc/eltorito.img=/tmp/iso-work/extract/boot/grub/i386-pc/eltorito.img" \
-            "/tmp/iso-work/extract" \
-          2>&1 | tail -20
-
-        # Torna bootável via USB (isohybrid)
+          /tmp/iso-work/extract 2>&1 | tail -20
         sudo isohybrid "/tmp/$ISO_FILE" 2>/dev/null || true
+        echo "ISO gerada: $ISO_FILE ($(du -sh /tmp/$ISO_FILE | cut -f1))"
 
-        ISO_SIZE=$(du -sh "/tmp/$ISO_FILE" | cut -f1)
-        echo "ISO gerada: $ISO_FILE ($ISO_SIZE)"
-
-    # ── 9. Calcula checksum ───────────────────────────────
     - name: Generate checksum
       run: |
         cd /tmp
         sha256sum "${{ env.ISO_FILE }}" > "${{ env.ISO_FILE }}.sha256"
-        echo "SHA256: $(cat ${{ env.ISO_FILE }}.sha256)"
 
-    # ── 10. Upload como artifact (sempre disponível) ──────
     - name: Upload ISO artifact
       uses: actions/upload-artifact@v4
       with:
@@ -240,7 +163,6 @@ jobs:
           /tmp/${{ env.ISO_FILE }}.sha256
         retention-days: 30
 
-    # ── 11. Cria GitHub Release (só em tags v*) ───────────
     - name: Create GitHub Release
       if: startsWith(github.ref, 'refs/tags/v')
       uses: softprops/action-gh-release@v2
@@ -248,21 +170,10 @@ jobs:
         name: "UltraClaw OS ${{ env.VERSION }}"
         body: |
           ## UltraClaw OS ${{ env.VERSION }}
-
-          ### Download
-          Baixe a ISO abaixo e grave num pendrive com [Balena Etcher](https://etcher.balena.io/).
-
-          ### Verificação
+          Baixe a ISO e grave num pendrive com [Balena Etcher](https://etcher.balena.io/).
           ```
           sha256sum -c ultraclaw-os-${{ env.VERSION }}-amd64.iso.sha256
           ```
-
-          ### O que está incluído
-          - Ubuntu ${{ env.UBUNTU_VERSION }} LTS base
-          - CLAW Kernel + OpenCLAW runtime
-          - Ollama (LLM local)
-          - UltraClaw visual theme (Plymouth + GRUB + Wallpapers)
-          - `clawctl` — ferramenta de controle
         files: |
           /tmp/${{ env.ISO_FILE }}
           /tmp/${{ env.ISO_FILE }}.sha256
