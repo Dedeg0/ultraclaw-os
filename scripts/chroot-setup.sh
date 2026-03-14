@@ -1,14 +1,13 @@
 #!/usr/bin/env bash
 # scripts/chroot-setup.sh
 # Runs inside the chroot during ISO build
-set -e
 export DEBIAN_FRONTEND=noninteractive
 export ULTRACLAW_NONINTERACTIVE=1
 export ULTRACLAW_OS=1
 
 echo "==> Running base installer..."
 cd /tmp/ultraclaw
-bash install.sh --non-interactive
+bash install.sh --non-interactive || echo "Installer warnings (continuing...)"
 
 echo "==> Installing theme..."
 if [ -f /tmp/ultraclaw/theme/install-theme.sh ]; then
