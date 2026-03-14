@@ -95,8 +95,11 @@ jobs:
         sudo cp theme/grub/theme.txt              "$CHROOT/tmp/ultraclaw/theme/grub/"     2>/dev/null || true
 
         # Clone ultraclaw repo
-        sudo chroot "$CHROOT" git clone --depth=1 \
-          https://github.com/Dedeg0/ultraclaw.git /opt/ultraclaw
+        sudo chroot "$CHROOT" /bin/bash -c "
+          apt-get update -qq
+          apt-get install -y git
+          git clone --depth=1 https://github.com/Dedeg0/ultraclaw.git /opt/ultraclaw
+          echo 'ultraclaw cloned OK'
 
         # Run all setup inside chroot
         sudo chroot "$CHROOT" /bin/bash -c "
