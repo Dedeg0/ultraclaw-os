@@ -16,7 +16,7 @@ jobs:
   build-iso:
     name: Build ISO
     runs-on: ubuntu-24.04
-    timeout-minutes: 90
+    timeout-minutes: 120
 
     steps:
 
@@ -39,7 +39,33 @@ jobs:
           rsync \
           grub-pc-bin \
           grub-efi-amd64-bin \
-          mtools
+          mtools \
+          git
+
+    - name: Setup Node.js 22
+      uses: actions/setup-node@v4
+      with:
+        node-version: '22'
+
+    - name: Pre-build UltraClaw
+      run: |
+        echo "==> Installing pnpm..."
+        npm install -g pnpm@latest
+        pnpm --version
+
+        echo "==> Cloning ultraclaw..."
+        git clone --depth=1 https://github.com/Dedeg0/ultraclaw.git /tmp/ultraclaw-build
+
+        echo "==> Installing dependencies..."
+        cd /tmp/ultraclaw-build/core
+        pnpm install --no-frozen-lockfile 2>&1 | tail -15
+
+        echo "==> Building..."
+        pnpm build 2>&1 | tail -20
+
+        echo "==> Build output:"
+        ls dist/ || echo "No dist/ found"
+        echo "Pre-build complete: $(du -sh /tmp/ultraclaw-build/core | cut -f1)"
 
     - name: Cache Ubuntu base ISO
       id: cache-iso
@@ -77,6 +103,11 @@ jobs:
     - name: Inject UltraClaw into chroot
       run: |
         CHROOT="/tmp/iso-work/squashfs"
+
+        # Copy pre-built ultraclaw into chroot
+        sudo cp -r /tmp/ultraclaw-build /tmp/iso-work/squashfs/opt/ultraclaw
+
+        # Mount binds
         sudo mount --bind /dev     "$CHROOT/dev"
         sudo mount --bind /dev/pts "$CHROOT/dev/pts"
         sudo mount --bind /proc    "$CHROOT/proc"
@@ -85,6 +116,7 @@ jobs:
         sudo cp /etc/resolv.conf "$CHROOT/etc/resolv.conf" 2>/dev/null || true
         sudo chroot "$CHROOT" /bin/bash -c "echo 'nameserver 8.8.8.8' > /etc/resolv.conf" 2>/dev/null || true
 
+        # Copy installer and theme files
         sudo mkdir -p "$CHROOT/tmp/ultraclaw/theme/plymouth"
         sudo mkdir -p "$CHROOT/tmp/ultraclaw/theme/grub"
         sed 's/\r//' install.sh | sudo tee "$CHROOT/tmp/ultraclaw/install.sh" > /dev/null
@@ -99,7 +131,7 @@ jobs:
           export ULTRACLAW_NONINTERACTIVE=1
           export ULTRACLAW_OS=1
 
-          # Base installer
+          # Base installer (Python env, systemd services, clawctl)
           cd /tmp/ultraclaw
           bash install.sh --non-interactive
 
@@ -108,38 +140,28 @@ jobs:
             bash /tmp/ultraclaw/theme/install-theme.sh
           fi
 
-          # Install git + Node.js 22
-          echo '==> Installing git and Node.js 22...'
+          # Install Node.js 22
+          echo '==> Installing Node.js 22...'
           apt-get update -qq
-          apt-get install -y git curl
+          apt-get install -y curl
           curl -fsSL https://deb.nodesource.com/setup_22.x | bash -
           apt-get install -y nodejs
           node --version && npm --version
 
-          # pnpm
+          # Install pnpm
           echo '==> Installing pnpm...'
           npm install -g pnpm@latest
-          pnpm --version
 
-          # Clone ultraclaw
-          echo '==> Cloning ultraclaw...'
-          git clone --depth=1 https://github.com/Dedeg0/ultraclaw.git /opt/ultraclaw
-
-          # Build
-          echo '==> Building ultraclaw...'
-          cd /opt/ultraclaw/core
-          pnpm install --frozen-lockfile 2>&1 | tail -5
-          pnpm build 2>&1 | tail -10
-
-          # Install CLI
+          # Install ultraclaw CLI from pre-built dist
+          echo '==> Installing ultraclaw CLI...'
           npm install -g /opt/ultraclaw/core
-          ultraclaw --version || echo 'ultraclaw installed'
+          echo 'ultraclaw CLI installed'
 
-          # OS config
+          # OS config files
           mkdir -p /etc/ultraclaw /etc/skel/.ultraclaw
-          cp /opt/ultraclaw/core/.env.ultraclaw /etc/ultraclaw/env 2>/dev/null || true
-          cp /opt/ultraclaw/core/config/ultraclaw-os.json /etc/ultraclaw/config.json 2>/dev/null || true
-          cp /opt/ultraclaw/core/config/ultraclaw-os.json /etc/skel/.ultraclaw/ultraclaw.json 2>/dev/null || true
+          cp /opt/ultraclaw/core/.env.ultraclaw            /etc/ultraclaw/env          2>/dev/null || true
+          cp /opt/ultraclaw/core/config/ultraclaw-os.json  /etc/ultraclaw/config.json  2>/dev/null || true
+          cp /opt/ultraclaw/core/config/ultraclaw-os.json  /etc/skel/.ultraclaw/ultraclaw.json 2>/dev/null || true
 
           # Cleanup
           apt-get clean
