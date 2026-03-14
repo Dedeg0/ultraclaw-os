@@ -85,7 +85,6 @@ jobs:
         sudo cp /etc/resolv.conf "$CHROOT/etc/resolv.conf" 2>/dev/null || true
         sudo chroot "$CHROOT" /bin/bash -c "echo 'nameserver 8.8.8.8' > /etc/resolv.conf" 2>/dev/null || true
 
-        # Copy installer and theme files
         sudo mkdir -p "$CHROOT/tmp/ultraclaw/theme/plymouth"
         sudo mkdir -p "$CHROOT/tmp/ultraclaw/theme/grub"
         sed 's/\r//' install.sh | sudo tee "$CHROOT/tmp/ultraclaw/install.sh" > /dev/null
@@ -94,14 +93,6 @@ jobs:
         sudo cp theme/plymouth/ultraclaw.plymouth "$CHROOT/tmp/ultraclaw/theme/plymouth/" 2>/dev/null || true
         sudo cp theme/grub/theme.txt              "$CHROOT/tmp/ultraclaw/theme/grub/"     2>/dev/null || true
 
-        # Clone ultraclaw repo
-        sudo chroot "$CHROOT" /bin/bash -c "
-          apt-get update -qq
-          apt-get install -y git
-          git clone --depth=1 https://github.com/Dedeg0/ultraclaw.git /opt/ultraclaw
-          echo 'ultraclaw cloned OK'
-
-        # Run all setup inside chroot
         sudo chroot "$CHROOT" /bin/bash -c "
           set -e
           export DEBIAN_FRONTEND=noninteractive
@@ -117,8 +108,10 @@ jobs:
             bash /tmp/ultraclaw/theme/install-theme.sh
           fi
 
-          # Node.js 22
-          echo '==> Installing Node.js 22...'
+          # Install git + Node.js 22
+          echo '==> Installing git and Node.js 22...'
+          apt-get update -qq
+          apt-get install -y git curl
           curl -fsSL https://deb.nodesource.com/setup_22.x | bash -
           apt-get install -y nodejs
           node --version && npm --version
@@ -128,20 +121,23 @@ jobs:
           npm install -g pnpm@latest
           pnpm --version
 
-          # Build ultraclaw
+          # Clone ultraclaw
+          echo '==> Cloning ultraclaw...'
+          git clone --depth=1 https://github.com/Dedeg0/ultraclaw.git /opt/ultraclaw
+
+          # Build
           echo '==> Building ultraclaw...'
           cd /opt/ultraclaw/core
           pnpm install --frozen-lockfile 2>&1 | tail -5
           pnpm build 2>&1 | tail -10
 
-          # Install CLI globally
-          echo '==> Installing ultraclaw CLI...'
+          # Install CLI
           npm install -g /opt/ultraclaw/core
           ultraclaw --version || echo 'ultraclaw installed'
 
-          # Write OS config
+          # OS config
           mkdir -p /etc/ultraclaw /etc/skel/.ultraclaw
-          cp /opt/ultraclaw/core/.env.ultraclaw    /etc/ultraclaw/env          2>/dev/null || true
+          cp /opt/ultraclaw/core/.env.ultraclaw /etc/ultraclaw/env 2>/dev/null || true
           cp /opt/ultraclaw/core/config/ultraclaw-os.json /etc/ultraclaw/config.json 2>/dev/null || true
           cp /opt/ultraclaw/core/config/ultraclaw-os.json /etc/skel/.ultraclaw/ultraclaw.json 2>/dev/null || true
 
