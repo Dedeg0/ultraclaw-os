@@ -115,7 +115,7 @@ jobs:
           -comp xz -b 1M -noappend -no-progress
         echo "Final size: $(du -sh ${{ env.SQUASHFS_DEST }} | cut -f1)"
 
-    - name: Build final ISO
+    - name: Build final ISO and split
       run: |
         if [[ "${{ github.ref }}" == refs/tags/* ]]; then
           VERSION="${{ github.ref_name }}"
@@ -137,11 +137,12 @@ jobs:
           /tmp/iso-work/extract 2>&1 | tail -20
         sudo isohybrid "/tmp/$ISO_FILE" 2>/dev/null || true
         echo "ISO built: $ISO_FILE ($(du -sh /tmp/$ISO_FILE | cut -f1))"
-
-    - name: Generate checksum
-      run: |
         cd /tmp
-        sha256sum "${{ env.ISO_FILE }}" > "${{ env.ISO_FILE }}.sha256"
+        sha256sum "$ISO_FILE" > "${ISO_FILE}.sha256"
+        split -b 1900m "$ISO_FILE" "${ISO_FILE}.part"
+        echo "Parts:"
+        ls -lh ${ISO_FILE}.part*
+        sha256sum ${ISO_FILE}.part* > "${ISO_FILE}.parts.sha256"
 
     - name: Upload ISO artifact
       uses: actions/upload-artifact@v4
@@ -151,14 +152,6 @@ jobs:
           /tmp/${{ env.ISO_FILE }}
           /tmp/${{ env.ISO_FILE }}.sha256
         retention-days: 30
-
-    - name: Split ISO for GitHub Release
-      if: startsWith(github.ref, 'refs/tags/v')
-      run: |
-        cd /tmp
-        split -b 1900m "${{ env.ISO_FILE }}" "${{ env.ISO_FILE }}.part"
-        ls -lh ${{ env.ISO_FILE }}.part*
-        sha256sum ${{ env.ISO_FILE }}.part* > "${{ env.ISO_FILE }}.parts.sha256"
 
     - name: Create GitHub Release
       if: startsWith(github.ref, 'refs/tags/v')
