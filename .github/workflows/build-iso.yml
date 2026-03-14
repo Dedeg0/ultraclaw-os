@@ -115,7 +115,7 @@ jobs:
           -comp xz -b 1M -noappend -no-progress
         echo "Final size: $(du -sh ${{ env.SQUASHFS_DEST }} | cut -f1)"
 
-    - name: Build final ISO and split
+    - name: Build final ISO
       run: |
         if [[ "${{ github.ref }}" == refs/tags/* ]]; then
           VERSION="${{ github.ref_name }}"
@@ -137,20 +137,31 @@ jobs:
           /tmp/iso-work/extract 2>&1 | tail -20
         sudo isohybrid "/tmp/$ISO_FILE" 2>/dev/null || true
         echo "ISO built: $ISO_FILE ($(du -sh /tmp/$ISO_FILE | cut -f1))"
+
+    - name: Generate checksum and split
+      run: |
+        ISO_FILE="${{ env.ISO_FILE }}"
         cd /tmp
         sha256sum "$ISO_FILE" > "${ISO_FILE}.sha256"
+        echo "Checksum: $(cat ${ISO_FILE}.sha256)"
+        echo "Splitting ISO into 1.9GB parts..."
         split -b 1900m "$ISO_FILE" "${ISO_FILE}.part"
-        echo "Parts:"
+        echo "Parts created:"
         ls -lh ${ISO_FILE}.part*
         sha256sum ${ISO_FILE}.part* > "${ISO_FILE}.parts.sha256"
+        echo "All files ready:"
+        ls -lh ${ISO_FILE}* | grep -v "^total"
 
     - name: Upload ISO artifact
       uses: actions/upload-artifact@v4
       with:
         name: ${{ env.ISO_FILE }}
         path: |
-          /tmp/${{ env.ISO_FILE }}
+          /tmp/${{ env.ISO_FILE }}.partaa
+          /tmp/${{ env.ISO_FILE }}.partab
+          /tmp/${{ env.ISO_FILE }}.partac
           /tmp/${{ env.ISO_FILE }}.sha256
+          /tmp/${{ env.ISO_FILE }}.parts.sha256
         retention-days: 30
 
     - name: Create GitHub Release
@@ -166,17 +177,20 @@ jobs:
           **Default credentials:** username `ultraclaw` / password `ultraclaw`
           Password change required on first login.
 
-          ### Download & Join
-          Download all `.partaa`, `.partab`, `.partac` files then run:
+          ### How to download
+          Download all `.partaa`, `.partab`, `.partac` files and the `.sha256`, then run:
           ```bash
-          cat ultraclaw-os-*.part* > ultraclaw-os-${{ github.ref_name }}-amd64.iso
+          cat ultraclaw-os-${{ github.ref_name }}-amd64.iso.partaa \
+              ultraclaw-os-${{ github.ref_name }}-amd64.iso.partab \
+              ultraclaw-os-${{ github.ref_name }}-amd64.iso.partac \
+              > ultraclaw-os-${{ github.ref_name }}-amd64.iso
           sha256sum -c ultraclaw-os-${{ github.ref_name }}-amd64.iso.sha256
           ```
         files: |
           /tmp/${{ env.ISO_FILE }}.partaa
           /tmp/${{ env.ISO_FILE }}.partab
           /tmp/${{ env.ISO_FILE }}.partac
-          /tmp/${{ env.ISO_FILE }}.parts.sha256
           /tmp/${{ env.ISO_FILE }}.sha256
+          /tmp/${{ env.ISO_FILE }}.parts.sha256
         draft: false
         prerelease: ${{ contains(github.ref_name, 'beta') || contains(github.ref_name, 'rc') }}
