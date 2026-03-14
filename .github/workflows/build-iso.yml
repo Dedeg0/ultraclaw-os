@@ -152,23 +152,38 @@ jobs:
           /tmp/${{ env.ISO_FILE }}.sha256
         retention-days: 30
 
+    - name: Split ISO for GitHub Release
+      if: startsWith(github.ref, 'refs/tags/v')
+      run: |
+        cd /tmp
+        split -b 1900m "${{ env.ISO_FILE }}" "${{ env.ISO_FILE }}.part"
+        ls -lh ${{ env.ISO_FILE }}.part*
+        sha256sum ${{ env.ISO_FILE }}.part* > "${{ env.ISO_FILE }}.parts.sha256"
+
     - name: Create GitHub Release
       if: startsWith(github.ref, 'refs/tags/v')
       uses: softprops/action-gh-release@v2
       with:
-        name: "UltraClaw OS ${{ env.VERSION }}"
+        name: "UltraClaw OS ${{ github.ref_name }}"
         body: |
-          ## UltraClaw OS ${{ env.VERSION }}
-          Download the ISO and flash to USB with [Balena Etcher](https://etcher.balena.io/).
+          ## UltraClaw OS ${{ github.ref_name }}
+
+          Flash to USB with [Balena Etcher](https://etcher.balena.io/).
 
           **Default credentials:** username `ultraclaw` / password `ultraclaw`
-          You will be prompted to change your password on first login.
+          Password change required on first login.
 
-          ```
-          sha256sum -c ultraclaw-os-${{ env.VERSION }}-amd64.iso.sha256
+          ### Download & Join
+          Download all `.partaa`, `.partab`, `.partac` files then run:
+          ```bash
+          cat ultraclaw-os-*.part* > ultraclaw-os-${{ github.ref_name }}-amd64.iso
+          sha256sum -c ultraclaw-os-${{ github.ref_name }}-amd64.iso.sha256
           ```
         files: |
-          /tmp/${{ env.ISO_FILE }}
+          /tmp/${{ env.ISO_FILE }}.partaa
+          /tmp/${{ env.ISO_FILE }}.partab
+          /tmp/${{ env.ISO_FILE }}.partac
+          /tmp/${{ env.ISO_FILE }}.parts.sha256
           /tmp/${{ env.ISO_FILE }}.sha256
         draft: false
         prerelease: ${{ contains(github.ref_name, 'beta') || contains(github.ref_name, 'rc') }}
