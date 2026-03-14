@@ -27,20 +27,9 @@ jobs:
       run: |
         sudo apt-get update -qq
         sudo apt-get install -y \
-          squashfs-tools \
-          genisoimage \
-          xorriso \
-          isolinux \
-          syslinux-utils \
-          wget \
-          curl \
-          python3-pip \
-          python3-pil \
-          rsync \
-          grub-pc-bin \
-          grub-efi-amd64-bin \
-          mtools \
-          git
+          squashfs-tools xorriso isolinux syslinux-utils \
+          wget curl rsync grub-pc-bin grub-efi-amd64-bin \
+          mtools git python3-pip python3-pil
 
     - name: Setup Node.js 22
       uses: actions/setup-node@v4
@@ -49,22 +38,11 @@ jobs:
 
     - name: Pre-build UltraClaw
       run: |
-        echo "==> Installing pnpm..."
         npm install -g pnpm@latest
-        pnpm --version
-
-        echo "==> Cloning ultraclaw..."
         git clone --depth=1 https://github.com/Dedeg0/ultraclaw.git /tmp/ultraclaw-build
-
-        echo "==> Installing dependencies..."
         cd /tmp/ultraclaw-build/core
         pnpm install --no-frozen-lockfile 2>&1 | tail -15
-
-        echo "==> Building..."
         pnpm build 2>&1 | tail -20
-
-        echo "==> Build output:"
-        ls dist/ || echo "No dist/ found"
         echo "Pre-build complete: $(du -sh /tmp/ultraclaw-build/core | cut -f1)"
 
     - name: Cache Ubuntu base ISO
@@ -72,17 +50,13 @@ jobs:
       uses: actions/cache@v4
       with:
         path: /tmp/ubuntu-base.iso
-        key: ubuntu-${{ env.UBUNTU_VERSION }}-base-iso
+        key: ubuntu-${{ env.UBUNTU_VERSION }}-desktop-minimal-iso
 
-    - name: Download Ubuntu base ISO
+    - name: Download Ubuntu Desktop ISO
       if: steps.cache-iso.outputs.cache-hit != 'true'
       run: |
-        echo "Downloading Ubuntu 24.04.2 Server ISO..."
         wget --progress=dot:giga \
-          "https://releases.ubuntu.com/24.04.2/ubuntu-24.04.2-live-server-amd64.iso" \
-          -O /tmp/ubuntu-base.iso || \
-        wget --progress=dot:giga \
-          "https://old-releases.ubuntu.com/releases/24.04/ubuntu-24.04-live-server-amd64.iso" \
+          "https://releases.ubuntu.com/24.04.2/ubuntu-24.04.2-desktop-amd64.iso" \
           -O /tmp/ubuntu-base.iso
         echo "Download complete: $(du -sh /tmp/ubuntu-base.iso | cut -f1)"
 
@@ -91,11 +65,9 @@ jobs:
         mkdir -p /tmp/iso-work/{mount,extract,squashfs}
         sudo mount -o loop /tmp/ubuntu-base.iso /tmp/iso-work/mount
         SQUASHFS_PATH=$(sudo find /tmp/iso-work/mount -name "*.squashfs" | head -1)
-        echo "Squashfs found: $SQUASHFS_PATH"
         echo "SQUASHFS_PATH=$SQUASHFS_PATH" >> "$GITHUB_ENV"
         sudo rsync -a /tmp/iso-work/mount/ /tmp/iso-work/extract/
         sudo chmod -R u+w /tmp/iso-work/extract/
-        echo "Extracting squashfs..."
         sudo unsquashfs -d /tmp/iso-work/squashfs "$SQUASHFS_PATH"
         sudo umount /tmp/iso-work/mount
         echo "Extraction complete: $(du -sh /tmp/iso-work/squashfs | cut -f1)"
@@ -103,11 +75,7 @@ jobs:
     - name: Inject UltraClaw into chroot
       run: |
         CHROOT="/tmp/iso-work/squashfs"
-
-        # Copy pre-built ultraclaw into chroot
-        sudo cp -r /tmp/ultraclaw-build /tmp/iso-work/squashfs/opt/ultraclaw
-
-        # Mount binds
+        sudo cp -r /tmp/ultraclaw-build "$CHROOT/opt/ultraclaw"
         sudo mount --bind /dev     "$CHROOT/dev"
         sudo mount --bind /dev/pts "$CHROOT/dev/pts"
         sudo mount --bind /proc    "$CHROOT/proc"
@@ -115,8 +83,6 @@ jobs:
         sudo mount --bind /run     "$CHROOT/run"
         sudo cp /etc/resolv.conf "$CHROOT/etc/resolv.conf" 2>/dev/null || true
         sudo chroot "$CHROOT" /bin/bash -c "echo 'nameserver 8.8.8.8' > /etc/resolv.conf" 2>/dev/null || true
-
-        # Copy installer and theme files
         sudo mkdir -p "$CHROOT/tmp/ultraclaw/theme/plymouth"
         sudo mkdir -p "$CHROOT/tmp/ultraclaw/theme/grub"
         sed 's/\r//' install.sh | sudo tee "$CHROOT/tmp/ultraclaw/install.sh" > /dev/null
@@ -124,50 +90,8 @@ jobs:
         sudo cp theme/plymouth/ultraclaw.script   "$CHROOT/tmp/ultraclaw/theme/plymouth/" 2>/dev/null || true
         sudo cp theme/plymouth/ultraclaw.plymouth "$CHROOT/tmp/ultraclaw/theme/plymouth/" 2>/dev/null || true
         sudo cp theme/grub/theme.txt              "$CHROOT/tmp/ultraclaw/theme/grub/"     2>/dev/null || true
-
-        sudo chroot "$CHROOT" /bin/bash -c "
-          set -e
-          export DEBIAN_FRONTEND=noninteractive
-          export ULTRACLAW_NONINTERACTIVE=1
-          export ULTRACLAW_OS=1
-
-          # Base installer (Python env, systemd services, clawctl)
-          cd /tmp/ultraclaw
-          bash install.sh --non-interactive
-
-          # Theme
-          if [ -f /tmp/ultraclaw/theme/install-theme.sh ]; then
-            bash /tmp/ultraclaw/theme/install-theme.sh
-          fi
-
-          # Install Node.js 22
-          echo '==> Installing Node.js 22...'
-          apt-get update -qq
-          apt-get install -y curl
-          curl -fsSL https://deb.nodesource.com/setup_22.x | bash -
-          apt-get install -y nodejs
-          node --version && npm --version
-
-          # Install pnpm
-          echo '==> Installing pnpm...'
-          npm install -g pnpm@latest
-
-          # Install ultraclaw CLI from pre-built dist
-          echo '==> Installing ultraclaw CLI...'
-          npm install -g /opt/ultraclaw/core
-          echo 'ultraclaw CLI installed'
-
-          # OS config files
-          mkdir -p /etc/ultraclaw /etc/skel/.ultraclaw
-          cp /opt/ultraclaw/core/.env.ultraclaw            /etc/ultraclaw/env          2>/dev/null || true
-          cp /opt/ultraclaw/core/config/ultraclaw-os.json  /etc/ultraclaw/config.json  2>/dev/null || true
-          cp /opt/ultraclaw/core/config/ultraclaw-os.json  /etc/skel/.ultraclaw/ultraclaw.json 2>/dev/null || true
-
-          # Cleanup
-          apt-get clean
-          rm -rf /tmp/ultraclaw /var/lib/apt/lists/* /etc/resolv.conf
-        "
-
+        sed 's/\r//' scripts/chroot-setup.sh | sudo tee "$CHROOT/tmp/chroot-setup.sh" > /dev/null
+        sudo chroot "$CHROOT" bash /tmp/chroot-setup.sh
         sudo umount "$CHROOT/run"     || true
         sudo umount "$CHROOT/sys"     || true
         sudo umount "$CHROOT/proc"    || true
@@ -176,17 +100,15 @@ jobs:
 
     - name: Update ISO metadata
       run: |
-        EXTRACT="/tmp/iso-work/extract"
         SQUASHFS_DEST=$(echo "${{ env.SQUASHFS_PATH }}" | sed 's|/tmp/iso-work/mount|/tmp/iso-work/extract|')
-        sudo bash -c "printf $(sudo du -sx --block-size=1 /tmp/iso-work/squashfs | cut -f1) > $EXTRACT/casper/filesystem.size" || true
+        sudo bash -c "printf $(sudo du -sx --block-size=1 /tmp/iso-work/squashfs | cut -f1) > /tmp/iso-work/extract/casper/filesystem.size" || true
         sudo chroot /tmp/iso-work/squashfs dpkg-query \
           -W --showformat='${Package} ${Version}\n' \
-          | sudo tee "$EXTRACT/casper/filesystem.manifest" > /dev/null || true
+          | sudo tee "/tmp/iso-work/extract/casper/filesystem.manifest" > /dev/null || true
         echo "SQUASHFS_DEST=$SQUASHFS_DEST" >> "$GITHUB_ENV"
 
     - name: Repack squashfs
       run: |
-        echo "Repacking squashfs..."
         sudo mksquashfs \
           /tmp/iso-work/squashfs \
           "${{ env.SQUASHFS_DEST }}" \
@@ -238,6 +160,10 @@ jobs:
         body: |
           ## UltraClaw OS ${{ env.VERSION }}
           Download the ISO and flash to USB with [Balena Etcher](https://etcher.balena.io/).
+
+          **Default credentials:** username `ultraclaw` / password `ultraclaw`
+          You will be prompted to change your password on first login.
+
           ```
           sha256sum -c ultraclaw-os-${{ env.VERSION }}-amd64.iso.sha256
           ```
