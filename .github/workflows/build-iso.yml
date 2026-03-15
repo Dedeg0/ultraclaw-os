@@ -1,1 +1,228 @@
-[cola o conteúdo do arquivo aqui]
+name: Build UltraClaw ISO
+
+on:
+  push:
+    branches: [ main ]
+    tags:     [ 'v*' ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+
+env:
+  UBUNTU_VERSION: "24.04"
+  ISO_NAME:       "ultraclaw-os"
+
+jobs:
+  build-iso:
+    name: Build ISO
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+
+    steps:
+
+    - name: Checkout
+      uses: actions/checkout@v4
+
+    - name: Install build dependencies
+      run: |
+        sudo apt-get update -qq
+        sudo apt-get install -y \
+          squashfs-tools xorriso isolinux syslinux-utils \
+          wget curl rsync grub-pc-bin grub-efi-amd64-bin \
+          mtools git python3-pip python3-pil
+
+    - name: Setup Node.js 22
+      uses: actions/setup-node@v4
+      with:
+        node-version: '22'
+
+    - name: Pre-build UltraClaw
+      run: |
+        npm install -g pnpm@latest
+        git clone --depth=1 https://github.com/Dedeg0/ultraclaw.git /tmp/ultraclaw-build
+        cd /tmp/ultraclaw-build/core
+        pnpm install --no-frozen-lockfile 2>&1 | tail -15
+        pnpm build 2>&1 | tail -20
+        echo "Pre-build complete: $(du -sh /tmp/ultraclaw-build/core | cut -f1)"
+
+    - name: Cache Ubuntu base ISO
+      id: cache-iso
+      uses: actions/cache@v4
+      with:
+        path: /tmp/ubuntu-base.iso
+        key: ubuntu-${{ env.UBUNTU_VERSION }}-desktop-minimal-iso
+
+    - name: Download Ubuntu Desktop ISO
+      if: steps.cache-iso.outputs.cache-hit != 'true'
+      run: |
+        wget --progress=dot:giga \
+          "https://releases.ubuntu.com/24.04.2/ubuntu-24.04.2-desktop-amd64.iso" \
+          -O /tmp/ubuntu-base.iso
+        echo "Download complete: $(du -sh /tmp/ubuntu-base.iso | cut -f1)"
+
+    - name: Extract base ISO
+      run: |
+        mkdir -p /tmp/iso-work/{mount,extract,squashfs}
+        sudo mount -o loop /tmp/ubuntu-base.iso /tmp/iso-work/mount
+        SQUASHFS_PATH=$(sudo find /tmp/iso-work/mount -name "*.squashfs" | head -1)
+        echo "SQUASHFS_PATH=$SQUASHFS_PATH" >> "$GITHUB_ENV"
+        sudo rsync -a /tmp/iso-work/mount/ /tmp/iso-work/extract/
+        sudo chmod -R u+w /tmp/iso-work/extract/
+        sudo unsquashfs -d /tmp/iso-work/squashfs "$SQUASHFS_PATH"
+        sudo umount /tmp/iso-work/mount
+        echo "Extraction complete: $(du -sh /tmp/iso-work/squashfs | cut -f1)"
+
+    - name: Inject UltraClaw into chroot
+      run: |
+        CHROOT="/tmp/iso-work/squashfs"
+        sudo cp -r /tmp/ultraclaw-build "$CHROOT/opt/ultraclaw"
+        sudo mount --bind /dev     "$CHROOT/dev"
+        sudo mount --bind /dev/pts "$CHROOT/dev/pts"
+        sudo mount --bind /proc    "$CHROOT/proc"
+        sudo mount --bind /sys     "$CHROOT/sys"
+        sudo mount --bind /run     "$CHROOT/run"
+        sudo cp /etc/resolv.conf "$CHROOT/etc/resolv.conf" 2>/dev/null || true
+        sudo chroot "$CHROOT" /bin/bash -c "echo 'nameserver 8.8.8.8' > /etc/resolv.conf" 2>/dev/null || true
+        sudo mkdir -p "$CHROOT/tmp/ultraclaw/theme/plymouth"
+        sudo mkdir -p "$CHROOT/tmp/ultraclaw/theme/grub"
+        sed 's/\r//' install.sh | sudo tee "$CHROOT/tmp/ultraclaw/install.sh" > /dev/null
+        sed 's/\r//' theme/install-theme.sh | sudo tee "$CHROOT/tmp/ultraclaw/theme/install-theme.sh" > /dev/null 2>/dev/null || true
+        sudo cp theme/plymouth/ultraclaw.script   "$CHROOT/tmp/ultraclaw/theme/plymouth/" 2>/dev/null || true
+        sudo cp theme/plymouth/ultraclaw.plymouth "$CHROOT/tmp/ultraclaw/theme/plymouth/" 2>/dev/null || true
+        sudo cp theme/grub/theme.txt              "$CHROOT/tmp/ultraclaw/theme/grub/"     2>/dev/null || true
+        sed 's/\r//' scripts/chroot-setup.sh | sudo tee "$CHROOT/tmp/chroot-setup.sh" > /dev/null
+        sudo chroot "$CHROOT" bash /tmp/chroot-setup.sh
+        sudo umount "$CHROOT/run"     || true
+        sudo umount "$CHROOT/sys"     || true
+        sudo umount "$CHROOT/proc"    || true
+        sudo umount "$CHROOT/dev/pts" || true
+        sudo umount "$CHROOT/dev"     || true
+
+    - name: Update ISO metadata
+      run: |
+        SQUASHFS_DEST=$(echo "${{ env.SQUASHFS_PATH }}" | sed 's|/tmp/iso-work/mount|/tmp/iso-work/extract|')
+        sudo bash -c "printf $(sudo du -sx --block-size=1 /tmp/iso-work/squashfs | cut -f1) > /tmp/iso-work/extract/casper/filesystem.size" || true
+        sudo chroot /tmp/iso-work/squashfs dpkg-query \
+          -W --showformat='${Package} ${Version}\n' \
+          | sudo tee "/tmp/iso-work/extract/casper/filesystem.manifest" > /dev/null || true
+        echo "SQUASHFS_DEST=$SQUASHFS_DEST" >> "$GITHUB_ENV"
+
+    - name: Repack squashfs
+      run: |
+        sudo mksquashfs \
+          /tmp/iso-work/squashfs \
+          "${{ env.SQUASHFS_DEST }}" \
+          -comp xz -b 1M -noappend -no-progress
+        echo "Final size: $(du -sh ${{ env.SQUASHFS_DEST }} | cut -f1)"
+
+    - name: Build final ISO
+      run: |
+        if [[ "${{ github.ref }}" == refs/tags/* ]]; then
+          VERSION="${{ github.ref_name }}"
+        else
+          VERSION="$(date +%Y%m%d)-$(echo ${{ github.sha }} | cut -c1-7)"
+        fi
+        ISO_FILE="${{ env.ISO_NAME }}-${VERSION}-amd64.iso"
+        echo "ISO_FILE=$ISO_FILE" >> "$GITHUB_ENV"
+        sudo xorriso -as mkisofs \
+          -iso-level 3 \
+          -full-iso9660-filenames \
+          -volid "ULTRACLAW_OS" \
+          -output "/tmp/$ISO_FILE" \
+          -eltorito-boot boot/grub/i386-pc/eltorito.img \
+          -no-emul-boot -boot-load-size 4 -boot-info-table \
+          --eltorito-catalog boot/grub/boot.cat \
+          --grub2-boot-info \
+          --grub2-mbr /usr/lib/grub/i386-pc/boot_hybrid.img \
+          /tmp/iso-work/extract 2>&1 | tail -20
+        sudo isohybrid "/tmp/$ISO_FILE" 2>/dev/null || true
+        echo "ISO built: $ISO_FILE ($(du -sh /tmp/$ISO_FILE | cut -f1))"
+
+    - name: Generate checksum
+      run: |
+        cd /tmp
+        sha256sum "${{ env.ISO_FILE }}" > "${{ env.ISO_FILE }}.sha256"
+
+    - name: Upload to Internet Archive
+      if: startsWith(github.ref, 'refs/tags/v')
+      env:
+        IA_ACCESS_KEY: ${{ secrets.IA_ACCESS_KEY }}
+        IA_SECRET_KEY: ${{ secrets.IA_SECRET_KEY }}
+      run: |
+        TAG="${{ github.ref_name }}"
+        ISO_FILE="${{ env.ISO_FILE }}"
+        IDENTIFIER="ultraclaw-os-${TAG}"
+
+        echo "==> Installing internetarchive CLI..."
+        pip install internetarchive --break-system-packages -q
+
+        echo "==> Configuring IA credentials..."
+        ia configure --username="" --password="" 2>/dev/null || true
+        mkdir -p ~/.config/internetarchive
+        cat > ~/.config/internetarchive/ia.ini << EOF
+        [s3]
+        access = ${IA_ACCESS_KEY}
+        secret = ${IA_SECRET_KEY}
+        EOF
+
+        echo "==> Uploading ${ISO_FILE} to archive.org..."
+        ia upload "${IDENTIFIER}" \
+          "/tmp/${ISO_FILE}" \
+          "/tmp/${ISO_FILE}.sha256" \
+          --metadata="mediatype:software" \
+          --metadata="title:UltraClaw OS ${TAG}" \
+          --metadata="description:UltraClaw OS - Personal AI assistant operating system based on Ubuntu Desktop 24.04. Default credentials: ultraclaw / ultraclaw." \
+          --metadata="subject:linux;ubuntu;ai;assistant;ultraclaw" \
+          --metadata="creator:Dedeg0" \
+          --retries=3
+
+        DOWNLOAD_URL="https://archive.org/download/${IDENTIFIER}/${ISO_FILE}"
+        echo "DOWNLOAD_URL=$DOWNLOAD_URL" >> "$GITHUB_ENV"
+        echo "Upload complete: $DOWNLOAD_URL"
+
+    - name: Create GitHub Release
+      if: startsWith(github.ref, 'refs/tags/v')
+      env:
+        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      run: |
+        TAG="${{ github.ref_name }}"
+        ISO_FILE="${{ env.ISO_FILE }}"
+        REPO="${{ github.repository }}"
+        DOWNLOAD_URL="https://archive.org/download/ultraclaw-os-${TAG}/${ISO_FILE}"
+
+        gh api repos/${REPO}/releases \
+          --method POST \
+          --field tag_name="${TAG}" \
+          --field name="UltraClaw OS ${TAG}" \
+          --field draft=false \
+          --field prerelease=false \
+          --field body="## UltraClaw OS ${TAG}
+
+        ### Download
+        **[⬇️ ${ISO_FILE}](${DOWNLOAD_URL})**
+
+        Flash to USB with [Balena Etcher](https://etcher.balena.io/).
+
+        **Default credentials:** username \`ultraclaw\` / password \`ultraclaw\`
+        Password change required on first login.
+
+        ### Verify
+        \`\`\`bash
+        sha256sum -c ${ISO_FILE}.sha256
+        \`\`\`
+
+        [SHA256 checksum](https://archive.org/download/ultraclaw-os-${TAG}/${ISO_FILE}.sha256) | [Archive.org page](https://archive.org/details/ultraclaw-os-${TAG})"
+
+        echo "Release created: https://github.com/${REPO}/releases/tag/${TAG}"
+
+    - name: Upload artifact (backup)
+      uses: actions/upload-artifact@v4
+      with:
+        name: ${{ env.ISO_FILE }}
+        path: |
+          /tmp/${{ env.ISO_FILE }}
+          /tmp/${{ env.ISO_FILE }}.sha256
+        retention-days: 7
+
+
+        
