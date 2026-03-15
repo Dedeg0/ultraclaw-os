@@ -140,48 +140,72 @@ jobs:
 
     - name: Generate checksum and split
       run: |
-        ISO_FILE="${{ env.ISO_FILE }}"
         cd /tmp
+        ISO_FILE="${{ env.ISO_FILE }}"
         sha256sum "$ISO_FILE" > "${ISO_FILE}.sha256"
-        echo "Splitting into 1.5GB parts..."
         split -b 1500m "$ISO_FILE" "${ISO_FILE}.part"
-        echo "Parts created:"
-        ls -lh ${ISO_FILE}.part*
         sha256sum ${ISO_FILE}.part* > "${ISO_FILE}.parts.sha256"
+        echo "Files ready:"
+        ls -lh ${ISO_FILE}.part* ${ISO_FILE}.sha256 ${ISO_FILE}.parts.sha256
 
     - name: Upload ISO artifact
       uses: actions/upload-artifact@v4
       with:
-        name: ${{ env.ISO_FILE }}
+        name: ${{ env.ISO_FILE }}-parts
         path: |
           /tmp/${{ env.ISO_FILE }}.part*
           /tmp/${{ env.ISO_FILE }}.sha256
           /tmp/${{ env.ISO_FILE }}.parts.sha256
         retention-days: 30
 
-    - name: Create GitHub Release
+    - name: Create GitHub Release and upload parts
       if: startsWith(github.ref, 'refs/tags/v')
-      uses: softprops/action-gh-release@v2
-      with:
-        name: "UltraClaw OS ${{ github.ref_name }}"
-        body: |
-          ## UltraClaw OS ${{ github.ref_name }}
+      env:
+        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      run: |
+        TAG="${{ github.ref_name }}"
+        ISO_FILE="${{ env.ISO_FILE }}"
+        REPO="${{ github.repository }}"
 
-          Flash to USB with [Balena Etcher](https://etcher.balena.io/).
+        BODY="## UltraClaw OS ${TAG}
 
-          **Default credentials:** username `ultraclaw` / password `ultraclaw`
-          Password change required on first login.
+        Flash to USB with [Balena Etcher](https://etcher.balena.io/).
 
-          ### How to download
-          Download all `.part*` files and the `.sha256`, then join and verify:
-          ```bash
-          cat ultraclaw-os-${{ github.ref_name }}-amd64.iso.part* \
-              > ultraclaw-os-${{ github.ref_name }}-amd64.iso
-          sha256sum -c ultraclaw-os-${{ github.ref_name }}-amd64.iso.sha256
-          ```
-        files: |
-          /tmp/${{ env.ISO_FILE }}.part*
-          /tmp/${{ env.ISO_FILE }}.sha256
-          /tmp/${{ env.ISO_FILE }}.parts.sha256
-        draft: false
-        prerelease: ${{ contains(github.ref_name, 'beta') || contains(github.ref_name, 'rc') }}
+        **Default credentials:** username \`ultraclaw\` / password \`ultraclaw\`
+        Password change required on first login.
+
+        ### How to download
+        Download all \`.part*\` files and the \`.sha256\`, then join and verify:
+        \`\`\`bash
+        cat ${ISO_FILE}.part* > ${ISO_FILE}
+        sha256sum -c ${ISO_FILE}.sha256
+        \`\`\`"
+
+        # Create release
+        RELEASE_ID=$(gh api repos/${REPO}/releases \
+          --method POST \
+          --field tag_name="${TAG}" \
+          --field name="UltraClaw OS ${TAG}" \
+          --field body="${BODY}" \
+          --field draft=false \
+          --field prerelease=false \
+          --jq '.id')
+
+        echo "Release ID: $RELEASE_ID"
+
+        # Upload each part individually
+        cd /tmp
+        for f in ${ISO_FILE}.part* ${ISO_FILE}.sha256 ${ISO_FILE}.parts.sha256; do
+          if [ -f "$f" ]; then
+            SIZE=$(stat -c%s "$f")
+            echo "Uploading $f ($(du -sh $f | cut -f1))..."
+            gh api repos/${REPO}/releases/${RELEASE_ID}/assets \
+              --method POST \
+              --header "Content-Type: application/octet-stream" \
+              -F "name=$(basename $f)" \
+              -F "file=@$f" \
+              --silent && echo "OK: $f" || echo "FAIL: $f"
+          fi
+        done
+
+        echo "Release created: https://github.com/${REPO}/releases/tag/${TAG}"
