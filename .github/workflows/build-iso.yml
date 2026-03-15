@@ -166,46 +166,21 @@ jobs:
         TAG="${{ github.ref_name }}"
         ISO_FILE="${{ env.ISO_FILE }}"
         REPO="${{ github.repository }}"
-
-        BODY="## UltraClaw OS ${TAG}
-
-        Flash to USB with [Balena Etcher](https://etcher.balena.io/).
-
-        **Default credentials:** username \`ultraclaw\` / password \`ultraclaw\`
-        Password change required on first login.
-
-        ### How to download
-        Download all \`.part*\` files and the \`.sha256\`, then join and verify:
-        \`\`\`bash
-        cat ${ISO_FILE}.part* > ${ISO_FILE}
-        sha256sum -c ${ISO_FILE}.sha256
-        \`\`\`"
-
-        # Create release
         RELEASE_ID=$(gh api repos/${REPO}/releases \
           --method POST \
           --field tag_name="${TAG}" \
           --field name="UltraClaw OS ${TAG}" \
-          --field body="${BODY}" \
+          --field body="## UltraClaw OS ${TAG}" \
           --field draft=false \
           --field prerelease=false \
           --jq '.id')
-
         echo "Release ID: $RELEASE_ID"
-
-        # Upload each part individually
         cd /tmp
-        for f in ${ISO_FILE}.part* ${ISO_FILE}.sha256 ${ISO_FILE}.parts.sha256; do
+        for f in ${ISO_FILE}.partaa ${ISO_FILE}.partab ${ISO_FILE}.partac ${ISO_FILE}.partad ${ISO_FILE}.sha256 ${ISO_FILE}.parts.sha256; do
           if [ -f "$f" ]; then
-            SIZE=$(stat -c%s "$f")
             echo "Uploading $f ($(du -sh $f | cut -f1))..."
-            gh api repos/${REPO}/releases/${RELEASE_ID}/assets \
-              --method POST \
-              --header "Content-Type: application/octet-stream" \
-              -F "name=$(basename $f)" \
-              -F "file=@$f" \
-              --silent && echo "OK: $f" || echo "FAIL: $f"
+            gh release upload "${TAG}" "$f" --repo "${REPO}" --clobber
+            echo "OK: $f"
           fi
         done
-
-        echo "Release created: https://github.com/${REPO}/releases/tag/${TAG}"
+        echo "Done: https://github.com/${REPO}/releases/tag/${TAG}"
