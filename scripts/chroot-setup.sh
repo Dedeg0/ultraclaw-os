@@ -39,7 +39,7 @@ echo "==> Setting up UltraClaw Gateway service..."
 cat > /etc/systemd/system/ultraclaw-gateway.service << 'EOF'
 [Unit]
 Description=UltraClaw Gateway
-After=network-online.target ollama.service
+After=network-online.target
 Wants=network-online.target
 
 [Service]
