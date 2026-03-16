@@ -1,99 +1,78 @@
-# UltraClaw OS — Build System
+# UltraClaw OS
 
-Desenvolva no Windows, o build acontece automaticamente no GitHub.
+> Ubuntu 24.04 with a personal AI assistant built in. Boot from USB and start talking to your local AI in minutes.
 
-## Como funciona
+## What is UltraClaw OS?
 
+UltraClaw OS is a ready-to-use Linux operating system based on Ubuntu 24.04 LTS. It comes with the UltraClaw AI assistant pre-installed and configured to run entirely on your own hardware — no cloud required, no subscriptions, no data leaving your machine.
+
+When you boot from the USB drive, you'll find:
+
+- A clean dark desktop environment ready to use
+- The UltraClaw Gateway running automatically at `localhost:18790`
+- Firefox opening directly to the UltraClaw interface
+- A setup wizard to install Ollama and download your AI model
+
+## Requirements
+
+| Component | Minimum | Recommended |
+|-----------|---------|-------------|
+| RAM | 8 GB | 16 GB |
+| Storage | 20 GB free | 50 GB free |
+| USB drive | 4 GB | 8 GB |
+| Architecture | x86_64 | x86_64 |
+
+## Download
+
+Get the latest ISO from the [Releases page](https://github.com/Dedeg0/ultraclaw-os/releases).
+
+## Flash to USB
+
+**Windows** — use [Balena Etcher](https://etcher.balena.io/):
+1. Download and open Balena Etcher
+2. Select the `.iso` file
+3. Select your USB drive (minimum 4 GB)
+4. Click Flash
+
+**Linux / macOS:**
+```bash
+sudo dd if=ultraclaw-os-vX.X.X-amd64.iso of=/dev/sdX bs=4M status=progress
 ```
-Você faz push no GitHub
-        │
-        ▼
-GitHub Actions (VM Ubuntu gratuita)
-        │
-        ├── Baixa Ubuntu 24.04 ISO base
-        ├── Extrai o filesystem (squashfs)
-        ├── Entra no chroot
-        ├── Roda install.sh (instala CLAW-OS)
-        ├── Instala o UltraClaw theme
-        ├── Recompacta o filesystem
-        └── Gera ultraclaw-os-VERSAO-amd64.iso
-                │
-                ▼
-        Disponível para download
-        em Actions > Artifacts
-```
+Replace `/dev/sdX` with your USB device.
 
-## Estrutura do repositório
-
-```
-ultraclaw-os/
-├── .github/
-│   └── workflows/
-│       └── build-iso.yml     ← pipeline de build
-├── scripts/
-│   └── install.sh            ← instalador do CLAW-OS
-├── theme/
-│   ├── install-theme.sh      ← instala Plymouth + GRUB + wallpapers
-│   ├── plymouth/
-│   │   ├── ultraclaw.script
-│   │   └── ultraclaw.plymouth
-│   └── grub/
-│       └── theme.txt
-└── README.md
-```
-
-## Fazendo uma build
-
-### Build automático (recomendado)
-Qualquer push na branch `main` dispara o build automaticamente.
+## Verify the download
 
 ```bash
-git add .
-git commit -m "feat: atualiza tema do boot"
-git push origin main
-# Acesse: github.com/SEU-USUARIO/ultraclaw-os/actions
+sha256sum -c ultraclaw-os-vX.X.X-amd64.iso.sha256
 ```
 
-### Build manual (sem push)
-1. Acesse a aba **Actions** no GitHub
-2. Clique em **Build UltraClaw ISO**
-3. Clique em **Run workflow**
+## First boot
 
-### Baixar a ISO após o build
-1. Acesse **Actions** → clique no build mais recente
-2. Role até **Artifacts**
-3. Clique no arquivo `.iso` para baixar
+1. Boot from the USB drive
+2. Log in with username `ultraclaw` and password `ultraclaw`
+3. You'll be prompted to change your password immediately
+4. Firefox opens automatically — click **Install Ollama** to set up your local AI model
+5. The download is approximately 4 GB — make sure you have a stable internet connection
 
-## Lançar uma versão oficial
+## Default credentials
+
+| Field | Value |
+|-------|-------|
+| Username | `ultraclaw` |
+| Password | `ultraclaw` |
+
+> Password change is required on first login.
+
+## Accessing the AI interface
+
+Open Firefox and go to `http://localhost:18790` — or use the UltraClaw shortcut in the taskbar.
+
+The gateway starts automatically on every boot. You can check its status anytime by opening a terminal (`Super+T`) and running:
 
 ```bash
-git tag v1.0.0
-git push origin v1.0.0
+systemctl status ultraclaw-gateway
 ```
 
-Isso cria automaticamente uma **GitHub Release** com a ISO e o checksum SHA256 disponíveis para download público.
+## License
 
-## Tempo estimado de build
-
-| Etapa                    | Tempo     |
-|--------------------------|-----------|
-| Download da ISO base     | ~5 min (cacheada após 1ª vez) |
-| Extração do squashfs     | ~3 min    |
-| install.sh no chroot     | ~15 min   |
-| Recompactar squashfs     | ~15 min   |
-| Gerar ISO final          | ~2 min    |
-| **Total**                | **~40 min** (primeira vez) |
-| **Total com cache**      | **~35 min** |
-
-## Verificar a ISO baixada
-
-```bash
-sha256sum -c ultraclaw-os-v1.0.0-amd64.iso.sha256
-```
-
-## Gravar em pendrive (Windows)
-
-1. Baixe o [Balena Etcher](https://etcher.balena.io/)
-2. Selecione a ISO
-3. Selecione o pendrive (mínimo 4GB)
-4. Flash!
+MIT — based on [OpenCLAW](https://github.com/openclaw/openclaw) by Peter Steinberger and contributors.
