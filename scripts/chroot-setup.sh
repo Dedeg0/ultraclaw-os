@@ -46,7 +46,7 @@ Wants=network-online.target
 Type=simple
 User=ultraclaw
 WorkingDirectory=/home/ultraclaw
-ExecStart=/usr/local/bin/ultraclaw gateway --port 18790
+ExecStart=/usr/bin/ultraclaw gateway --port 18790
 Restart=on-failure
 RestartSec=5
 Environment=ULTRACLAW_OS=1
