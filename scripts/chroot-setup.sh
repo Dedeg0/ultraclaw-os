@@ -24,6 +24,7 @@ node --version && npm --version
 
 echo "==> Installing pnpm and ultraclaw CLI..."
 npm install -g pnpm@latest
+cd /opt/ultraclaw/core && pnpm install --no-frozen-lockfile && pnpm build
 npm install -g /opt/ultraclaw/core
 echo "ultraclaw CLI installed"
 
