@@ -24,7 +24,6 @@ node --version && npm --version
 
 echo "==> Installing pnpm and ultraclaw CLI..."
 npm install -g pnpm@latest
-
 npm install -g /opt/ultraclaw/core
 echo "ultraclaw CLI installed"
 
@@ -34,7 +33,7 @@ apt-get install -y firefox || snap install firefox || true
 echo "==> Creating ultraclaw user..."
 useradd -m -s /bin/bash -G sudo,audio,video,plugdev,netdev ultraclaw 2>/dev/null || true
 echo 'ultraclaw:ultraclaw' | chpasswd
-passwd -e ultraclaw 2>/dev/null || true
+# No forced password change — ultraclaw is the permanent default password
 
 echo "==> Setting up UltraClaw Gateway service..."
 cat > /etc/systemd/system/ultraclaw-gateway.service << 'EOF'
@@ -59,8 +58,6 @@ WantedBy=multi-user.target
 EOF
 
 systemctl enable ultraclaw-gateway.service 2>/dev/null || true
-systemctl enable ollama.service            2>/dev/null || true
-systemctl enable claw-kernel.service       2>/dev/null || true
 
 echo "==> Configuring Firefox homepage..."
 mkdir -p /home/ultraclaw/.mozilla/firefox/ultraclaw.default
@@ -91,10 +88,37 @@ chown -R ultraclaw:ultraclaw /home/ultraclaw/.mozilla
 
 echo "==> Writing OS config..."
 mkdir -p /etc/ultraclaw /etc/skel/.ultraclaw /home/ultraclaw/.ultraclaw
-cp /opt/ultraclaw/core/.env.ultraclaw           /etc/ultraclaw/env                              2>/dev/null || true
-cp /opt/ultraclaw/core/config/ultraclaw-os.json /etc/ultraclaw/config.json                      2>/dev/null || true
-cp /opt/ultraclaw/core/config/ultraclaw-os.json /home/ultraclaw/.ultraclaw/ultraclaw.json        2>/dev/null || true
+cp /opt/ultraclaw/core/.env.ultraclaw           /etc/ultraclaw/env                         2>/dev/null || true
+cp /opt/ultraclaw/core/config/ultraclaw-os.json /etc/ultraclaw/config.json                 2>/dev/null || true
+cp /opt/ultraclaw/core/config/ultraclaw-os.json /home/ultraclaw/.ultraclaw/ultraclaw.json  2>/dev/null || true
 chown -R ultraclaw:ultraclaw /home/ultraclaw/.ultraclaw
+
+echo "==> Disabling Ubuntu initial setup wizard..."
+apt-get remove -y --purge gnome-initial-setup 2>/dev/null || true
+mkdir -p /home/ultraclaw/.config
+echo "yes" > /home/ultraclaw/.config/gnome-initial-setup-done
+mkdir -p /root/.config
+echo "yes" > /root/.config/gnome-initial-setup-done
+chown -R ultraclaw:ultraclaw /home/ultraclaw/.config
+
+echo "==> Configuring live autologin (Kali-style)..."
+mkdir -p /etc/gdm3
+
+cat > /etc/gdm3/custom.conf << 'EOF'
+[daemon]
+AutomaticLoginEnable=true
+AutomaticLogin=ultraclaw
+WaylandEnable=false
+TimedLoginEnable=false
+
+[security]
+
+[xdmcp]
+
+[chooser]
+
+[debug]
+EOF
 
 echo "==> Configuring GNOME dark theme..."
 mkdir -p /etc/dconf/db/local.d /etc/dconf/profile
@@ -137,9 +161,8 @@ EOF
 dconf update 2>/dev/null || true
 echo "GNOME dark theme configured"
 
-echo "==> Configuring GDM..."
+echo "==> Configuring GDM login screen..."
 mkdir -p /etc/dconf/db/gdm.d
-mkdir -p /etc/gdm3
 
 cat > /etc/dconf/db/gdm.d/01-ultraclaw << 'EOF'
 [org/gnome/desktop/interface]
@@ -153,22 +176,30 @@ primary-color='#080808'
 EOF
 
 dconf update 2>/dev/null || true
+echo "GDM configured"
 
-cat > /etc/gdm3/custom.conf << 'EOF'
-[daemon]
-AutomaticLoginEnable=false
-WaylandEnable=false
-
-[security]
-
-[xdmcp]
-
-[chooser]
-
-[debug]
+echo "==> Configuring UltraClaw OS branding..."
+cat > /etc/os-release << 'EOF'
+NAME="UltraClaw OS"
+VERSION="1.0"
+ID=ultraclaw
+ID_LIKE=ubuntu
+PRETTY_NAME="UltraClaw OS (powered by Ubuntu 24.04)"
+VERSION_ID="1.0"
+HOME_URL="https://github.com/Dedeg0/ultraclaw-os"
+SUPPORT_URL="https://github.com/Dedeg0/ultraclaw-os/issues"
+BUG_REPORT_URL="https://github.com/Dedeg0/ultraclaw-os/issues"
 EOF
 
-echo "GDM configured"
+if [ -f /etc/default/grub ]; then
+  sed -i 's/GRUB_DISTRIBUTOR=.*/GRUB_DISTRIBUTOR="UltraClaw OS"/' /etc/default/grub
+fi
+
+systemctl disable apport              2>/dev/null || true
+systemctl disable whoopsie            2>/dev/null || true
+systemctl disable kerneloops          2>/dev/null || true
+systemctl disable popularity-contest  2>/dev/null || true
+systemctl disable ubuntu-advantage    2>/dev/null || true
 
 echo "==> Creating Firefox shortcut for UltraClaw Gateway..."
 cat > /usr/share/applications/firefox-ultraclaw.desktop << 'EOF'
