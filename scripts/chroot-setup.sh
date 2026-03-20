@@ -24,7 +24,7 @@ node --version && npm --version
 
 echo "==> Installing pnpm and ultraclaw CLI..."
 npm install -g pnpm@latest
-npm install -g /opt/ultraclaw/core
+npm install -g /opt/ultraclaw
 echo "ultraclaw CLI installed"
 
 echo "==> Installing Firefox..."
@@ -88,9 +88,9 @@ chown -R ultraclaw:ultraclaw /home/ultraclaw/.mozilla
 
 echo "==> Writing OS config..."
 mkdir -p /etc/ultraclaw /etc/skel/.ultraclaw /home/ultraclaw/.ultraclaw
-cp /opt/ultraclaw/core/.env.ultraclaw           /etc/ultraclaw/env                         2>/dev/null || true
-cp /opt/ultraclaw/core/config/ultraclaw-os.json /etc/ultraclaw/config.json                 2>/dev/null || true
-cp /opt/ultraclaw/core/config/ultraclaw-os.json /home/ultraclaw/.ultraclaw/ultraclaw.json  2>/dev/null || true
+cp /opt/ultraclaw/.env.ultraclaw           /etc/ultraclaw/env                         2>/dev/null || true
+cp /opt/ultraclaw/config/ultraclaw-os.json /etc/ultraclaw/config.json                 2>/dev/null || true
+cp /opt/ultraclaw/config/ultraclaw-os.json /home/ultraclaw/.ultraclaw/ultraclaw.json  2>/dev/null || true
 chown -R ultraclaw:ultraclaw /home/ultraclaw/.ultraclaw
 
 echo "==> Disabling Ubuntu initial setup wizard..."
@@ -278,7 +278,7 @@ find /usr/share/man -mindepth 1 -maxdepth 1 \
   -exec rm -rf {} + 2>/dev/null || true
 
 echo "==> Removing node_modules from opt/ultraclaw (reinstalled on first boot)..."
-rm -rf /opt/ultraclaw/core/node_modules 2>/dev/null || true
+rm -rf /opt/ultraclaw/node_modules 2>/dev/null || true
 
 echo "==> Final cleanup..."
 apt-get autoremove -y 2>/dev/null || true

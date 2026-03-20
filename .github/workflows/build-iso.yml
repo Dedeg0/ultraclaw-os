@@ -75,7 +75,7 @@ jobs:
     - name: Inject UltraClaw into chroot
       run: |
         CHROOT="/tmp/iso-work/squashfs"
-        sudo cp -r /tmp/ultraclaw-build "$CHROOT/opt/ultraclaw"
+        sudo cp -r /tmp/ultraclaw-build/core "$CHROOT/opt/ultraclaw"
         sudo mount --bind /dev     "$CHROOT/dev"
         sudo mount --bind /dev/pts "$CHROOT/dev/pts"
         sudo mount --bind /proc    "$CHROOT/proc"
