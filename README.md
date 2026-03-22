@@ -50,7 +50,7 @@ sha256sum -c ultraclaw-os-vX.X.X-amd64.iso.sha256
 
 1. Boot from the USB drive
 2. Log in with username `ultraclaw` and password `ultraclaw`
-3. You'll be prompted to change your password immediately
+3. Firefox opens automatically with the UltraClaw interface
 4. Firefox opens automatically — click **Install Ollama** to set up your local AI model
 5. The download is approximately 4 GB — make sure you have a stable internet connection
 
@@ -61,7 +61,7 @@ sha256sum -c ultraclaw-os-vX.X.X-amd64.iso.sha256
 | Username | `ultraclaw` |
 | Password | `ultraclaw` |
 
-> Password change is required on first login.
+> The default password is `ultraclaw` — no change required.
 
 ## Accessing the AI interface
 
