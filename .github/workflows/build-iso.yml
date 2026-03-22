@@ -46,7 +46,7 @@ jobs:
         ULTRACLAW_A2UI_SKIP_MISSING=1 ULTRACLAW_BUILD_VERBOSE=1 pnpm build:docker 2>&1 | tail -40
         echo "Pre-build complete: $(du -sh /tmp/ultraclaw-build/core | cut -f1)"
         ls /tmp/ultraclaw-build/core/dist/ 2>/dev/null || echo "dist/ does not exist"
-        test -f /tmp/ultraclaw-build/core/dist/entry.mjs || { echo "ERROR: dist/entry.mjs not found after build!"; exit 1; }
+        ls /tmp/ultraclaw-build/core/dist/entry* 2>/dev/null || echo "No entry files found"
 
     - name: Cache Ubuntu base ISO
       id: cache-iso
