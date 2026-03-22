@@ -41,6 +41,17 @@ jobs:
         npm install -g pnpm@latest
         git clone --depth=1 https://github.com/Dedeg0/ultraclaw.git /tmp/ultraclaw-build
         cd /tmp/ultraclaw-build/core
+        cat > pnpm-workspace.yaml << 'WORKSPACE'
+packages:
+  - .
+  - ui
+  - packages/*
+onlyBuiltDependencies:
+  - "@lydell/node-pty"
+  - esbuild
+  - protobufjs
+  - sharp
+WORKSPACE
         pnpm install --no-frozen-lockfile 2>&1 | tail -15
         pnpm build:docker 2>&1 | tail -20
         echo "Pre-build complete: $(du -sh /tmp/ultraclaw-build/core | cut -f1)"
